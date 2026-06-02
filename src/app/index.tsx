@@ -27,6 +27,9 @@ import { DisplayLanguage, LANGUAGE_OPTIONS, speechService } from '@/services/spe
 const POLL_INTERVAL_MS = 5000;
 const MIN_DISPLAY_SCALE = 1;
 const MAX_DISPLAY_SCALE = 2.4;
+const PAGE_HORIZONTAL_PADDING = 24;
+const COUNTER_GRID_GAP = 18;
+const MAX_COUNTER_COLUMNS = 4;
 
 export default function HomeScreen() {
   const { height, width } = useWindowDimensions();
@@ -51,6 +54,10 @@ export default function HomeScreen() {
   const ticker = tokenDisplay?.display?.ticker;
   const showTopTicker = shouldShowTicker(ticker, 'top');
   const showBottomTicker = shouldShowTicker(ticker, 'bottom');
+  const counterCardWidth = useMemo(
+    () => getCounterCardWidth(width, displayScale),
+    [displayScale, width],
+  );
 
   const handleBranchCodeChange = (value: string) => {
     setBranchCode(value.toUpperCase());
@@ -179,7 +186,7 @@ export default function HomeScreen() {
         style={[
           styles.page,
           {
-            paddingHorizontal: 24 * displayScale,
+            paddingHorizontal: PAGE_HORIZONTAL_PADDING * displayScale,
             paddingVertical: 20 * displayScale,
           },
         ]}>
@@ -212,10 +219,19 @@ export default function HomeScreen() {
         ) : (
           <>
             {showTopTicker && <TickerBanner ticker={ticker} scale={displayScale} width={width} />}
-            <ScrollView contentContainerStyle={[styles.counterGrid, { gap: 18 * displayScale }]}>
+            <ScrollView
+              contentContainerStyle={[
+                styles.counterGrid,
+                { gap: COUNTER_GRID_GAP * displayScale },
+              ]}>
               {activeCounters.length > 0 ? (
                 activeCounters.map((item) => (
-                  <CounterCard key={item.counter.id} item={item} scale={displayScale} />
+                  <CounterCard
+                    key={item.counter.id}
+                    item={item}
+                    scale={displayScale}
+                    width={counterCardWidth}
+                  />
                 ))
               ) : (
                 <EmptyState message="No active counters found for this branch." />
@@ -359,7 +375,15 @@ function LanguageSelector({ scale, value, onChange }: LanguageSelectorProps) {
   );
 }
 
-function CounterCard({ item, scale }: { item: CounterTokenDisplayItem; scale: number }) {
+function CounterCard({
+  item,
+  scale,
+  width,
+}: {
+  item: CounterTokenDisplayItem;
+  scale: number;
+  width: number;
+}) {
   const currentToken = item.currentToken;
   const nextTokens = item.waitingTokens.slice(0, 5);
 
@@ -369,7 +393,7 @@ function CounterCard({ item, scale }: { item: CounterTokenDisplayItem; scale: nu
         styles.counterCard,
         {
           borderRadius: 12 * scale,
-          flexBasis: 520 * scale,
+          width,
           minHeight: 330 * scale,
           paddingHorizontal: 32 * scale,
           paddingVertical: 30 * scale,
@@ -614,7 +638,7 @@ function TickerBanner({
         styles.tickerBanner,
         {
           height: 46 * scale,
-          marginHorizontal: -24 * scale,
+          marginHorizontal: -PAGE_HORIZONTAL_PADDING * scale,
           marginBottom: ticker.position === 'top' ? 18 * scale : 0,
           marginTop: ticker.position === 'bottom' ? 18 * scale : 0,
           width,
@@ -655,6 +679,19 @@ function formatTime(value: string) {
 function getDisplayScale(width: number, height: number) {
   const scale = Math.min(width / 1200, height / 720);
   return Math.max(MIN_DISPLAY_SCALE, Math.min(scale, MAX_DISPLAY_SCALE));
+}
+
+function getCounterCardWidth(screenWidth: number, scale: number) {
+  const horizontalPadding = PAGE_HORIZONTAL_PADDING * scale * 2;
+  const gap = COUNTER_GRID_GAP * scale;
+  const availableWidth = Math.max(0, screenWidth - horizontalPadding);
+  const minCardWidth = 230 * scale;
+  const columns = Math.max(
+    1,
+    Math.min(MAX_COUNTER_COLUMNS, Math.floor((availableWidth + gap) / (minCardWidth + gap))),
+  );
+
+  return (availableWidth - gap * (columns - 1)) / columns;
 }
 
 function getDisplayIssue(displayResponse: PublicCounterTokenDisplayResponse): DisplayIssue | null {
@@ -899,12 +936,13 @@ const styles = StyleSheet.create({
   counterGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: 18,
     paddingBottom: 26,
   },
   counterCard: {
-    flexGrow: 1,
-    flexBasis: 430,
+    flexGrow: 0,
+    flexShrink: 0,
     borderWidth: 2,
     borderColor: '#6d88f2',
     borderRadius: 12,
