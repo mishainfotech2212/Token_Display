@@ -9,6 +9,23 @@ export type BranchRequest = {
 export type Organization = {
   id: string;
   name: string;
+  industry?: string | null;
+  industry_type?: string | null;
+  type?: string | null;
+  labels?: DisplayLabels;
+};
+
+export type DisplayLabels = {
+  organization?: string;
+  branch?: string;
+  customer?: string;
+  staff?: string;
+  department?: string;
+  service?: string;
+  counter?: string;
+  appointment?: string;
+  queue?: string;
+  token?: string;
 };
 
 export type Branch = {
@@ -57,7 +74,17 @@ export type TokenDisplay = {
   name: string;
   code: string;
   status: 'online' | 'offline' | string;
+  type?: string;
   ticker: TokenDisplayTicker | null;
+};
+
+export type DisplayMedia = {
+  id: string;
+  name: string;
+  type: 'image' | 'video' | 'text' | string;
+  url: string | null;
+  text_content: string | null;
+  duration_seconds: number | null;
 };
 
 export type PublicBranchesResponse = {
@@ -81,10 +108,13 @@ export type CounterTokenDisplayItem = {
 
 export type PublicCounterTokenDisplayResponse = {
   success: boolean;
+  organization?: Organization;
+  labels?: DisplayLabels;
   branch: Branch;
   counters: CounterTokenDisplayItem[];
   last_updated: string;
   displayAllowed?: boolean;
   displayStatus?: 'ONLINE' | 'OFFLINE' | string;
   display?: TokenDisplay | null;
+  media?: DisplayMedia[];
 };

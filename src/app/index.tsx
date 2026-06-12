@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { useEventListener } from 'expo';
+import { Image } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   ActivityIndicator,
   Animated,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,11 +22,14 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   Branch,
   CounterTokenDisplayItem,
+  DisplayLabels,
+  DisplayMedia,
   Organization,
   PublicCounterTokenDisplayResponse,
   TokenDisplayTicker,
@@ -22,7 +37,7 @@ import {
 } from '@/services/api-types';
 import { publicBranchesApi } from '@/services/public-branches-api';
 import { publicCounterTokenDisplayApi } from '@/services/public-counter-token-display-api';
-import { DisplayLanguage, LANGUAGE_OPTIONS, speechService } from '@/services/speech-service';
+import { DisplayLanguage, speechService } from '@/services/speech-service';
 
 const POLL_INTERVAL_MS = 5000;
 const MIN_DISPLAY_SCALE = 1;
@@ -30,6 +45,8 @@ const MAX_DISPLAY_SCALE = 2.4;
 const PAGE_HORIZONTAL_PADDING = 24;
 const COUNTER_GRID_GAP = 18;
 const MAX_COUNTER_COLUMNS = 4;
+const MEDIA_TOP_PULL = 82;
+const TICKER_HEIGHT = 46;
 
 export default function HomeScreen() {
   const { height, width } = useWindowDimensions();
@@ -38,11 +55,12 @@ export default function HomeScreen() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [tokenDisplay, setTokenDisplay] = useState<PublicCounterTokenDisplayResponse | null>(null);
-  const [language, setLanguage] = useState<DisplayLanguage>('en');
+  const [language] = useState<DisplayLanguage>('en');
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isLoadingDisplay, setIsLoadingDisplay] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const previousServingTokensRef = useRef<Map<string, string>>(new Map());
 
   const activeCounters = useMemo(
@@ -54,10 +72,31 @@ export default function HomeScreen() {
   const ticker = tokenDisplay?.display?.ticker;
   const showTopTicker = shouldShowTicker(ticker, 'top');
   const showBottomTicker = shouldShowTicker(ticker, 'bottom');
-  const counterCardWidth = useMemo(
-    () => getCounterCardWidth(width, displayScale),
-    [displayScale, width],
+  const labels = useMemo(() => getDisplayLabels(tokenDisplay, organization), [organization, tokenDisplay]);
+  const mediaItems = useMemo(() => tokenDisplay?.media ?? [], [tokenDisplay?.media]);
+  const hasMedia = mediaItems.length > 0;
+  const currentMediaIndex = mediaItems.length ? Math.min(activeMediaIndex, mediaItems.length - 1) : 0;
+  const currentMedia = mediaItems[currentMediaIndex];
+  const currentMediaDuration = currentMedia?.duration_seconds;
+  const currentMediaId = currentMedia?.id;
+  const currentMediaType = currentMedia?.type;
+  const currentMediaKind = currentMedia ? getMediaKind(currentMedia) : null;
+  const counterAreaWidth = useMemo(
+    () => getCounterAreaWidth(width, displayScale, hasMedia),
+    [displayScale, hasMedia, width],
   );
+  const counterCardWidth = useMemo(
+    () => getCounterCardWidth(counterAreaWidth, displayScale, hasMedia),
+    [counterAreaWidth, displayScale, hasMedia],
+  );
+  const branchCardWidth = useMemo(() => getBranchCardWidth(width), [width]);
+  const advanceMedia = useCallback(() => {
+    if (mediaItems.length <= 1) {
+      return;
+    }
+
+    setActiveMediaIndex((currentIndex) => (currentIndex + 1) % mediaItems.length);
+  }, [mediaItems.length]);
 
   const handleBranchCodeChange = (value: string) => {
     setBranchCode(value.toUpperCase());
@@ -142,6 +181,7 @@ export default function HomeScreen() {
   const selectBranch = (branch: Branch) => {
     setSelectedBranch(branch);
     setTokenDisplay(null);
+    setActiveMediaIndex(0);
     previousServingTokensRef.current = new Map();
     void loadTokenDisplay(branch, true);
   };
@@ -177,6 +217,29 @@ export default function HomeScreen() {
   }, [loadTokenDisplay, selectedBranch]);
 
   useEffect(() => {
+    if (mediaItems.length <= 1) {
+      return;
+    }
+
+    if (currentMediaKind === 'video' || currentMediaKind === 'web') {
+      return;
+    }
+
+    const durationMs = Math.max(3, currentMediaDuration ?? 10) * 1000;
+    const timeout = setTimeout(advanceMedia, durationMs);
+
+    return () => clearTimeout(timeout);
+  }, [
+    advanceMedia,
+    currentMediaIndex,
+    currentMediaDuration,
+    currentMediaId,
+    currentMediaKind,
+    currentMediaType,
+    mediaItems.length,
+  ]);
+
+  useEffect(() => {
     return () => speechService.stop();
   }, []);
 
@@ -187,26 +250,25 @@ export default function HomeScreen() {
           styles.page,
           {
             paddingHorizontal: PAGE_HORIZONTAL_PADDING * displayScale,
-            paddingVertical: 20 * displayScale,
+            paddingTop: hasMedia ? 0 : 20 * displayScale,
+            paddingBottom: showBottomTicker ? 0 : 20 * displayScale,
           },
         ]}>
         <Header
           scale={displayScale}
           title={tokenDisplay?.branch.name ?? selectedBranch.name}
-          subtitle={`${organization?.name ?? 'Organization'} - Live Counter Display`}
+          subtitle={`${tokenDisplay?.organization?.name ?? organization?.name ?? labels.organization} - Live ${labels.counter} Display`}
           onBack={resetToBranches}
-          rightContent={
-            <View style={[styles.headerRight, { gap: 8 * displayScale }]}>
-              <LanguageSelector scale={displayScale} value={language} onChange={setLanguage} />
+          centerContent={
+            tokenDisplay?.last_updated ? (
               <Text
                 style={[
-                  styles.refreshText,
-                  { fontSize: 14 * displayScale, lineHeight: 20 * displayScale },
+                  styles.displayTimeText,
+                  { fontSize: 18 * displayScale, lineHeight: 24 * displayScale },
                 ]}>
-                Refresh every 5s
-                {tokenDisplay?.last_updated ? ` - Updated ${formatTime(tokenDisplay.last_updated)}` : ''}
+                {formatTime(tokenDisplay.last_updated)}
               </Text>
-            </View>
+            ) : null
           }
         />
 
@@ -219,29 +281,44 @@ export default function HomeScreen() {
         ) : (
           <>
             {showTopTicker && <TickerBanner ticker={ticker} scale={displayScale} width={width} />}
-            <ScrollView
-              contentContainerStyle={[
-                styles.counterGrid,
-                { gap: COUNTER_GRID_GAP * displayScale },
+            <View
+              style={[
+                hasMedia ? styles.displayContentWithMedia : styles.displayContent,
+                hasMedia && { gap: COUNTER_GRID_GAP * displayScale },
+                showBottomTicker && { marginBottom: TICKER_HEIGHT * displayScale },
               ]}>
-              {activeCounters.length > 0 ? (
-                activeCounters.map((item) => (
-                  <CounterCard
-                    key={item.counter.id}
-                    item={item}
-                    scale={displayScale}
-                    width={counterCardWidth}
-                  />
-                ))
-              ) : (
-                <EmptyState message="No active counters found for this branch." />
+              <ScrollView
+                style={hasMedia && styles.counterPane}
+                contentContainerStyle={[
+                  styles.counterGrid,
+                  { gap: COUNTER_GRID_GAP * displayScale },
+                ]}>
+                {activeCounters.length > 0 ? (
+                  activeCounters.map((item) => (
+                    <CounterCard
+                      key={item.counter.id}
+                      item={item}
+                      labels={labels}
+                      scale={displayScale}
+                      width={counterCardWidth}
+                    />
+                  ))
+                ) : (
+                  <EmptyState message={`No active ${labels.counter.toLowerCase()} found for this branch.`} />
+                )}
+              </ScrollView>
+              {currentMedia && (
+                <MediaPanel
+                  media={currentMedia}
+                  onVideoEnd={advanceMedia}
+                  scale={displayScale}
+                />
               )}
-            </ScrollView>
+            </View>
             {showBottomTicker && <TickerBanner ticker={ticker} scale={displayScale} width={width} />}
           </>
         )}
 
-        {isRefreshing && <Text style={styles.refreshingText}>Updating live display...</Text>}
       </SafeAreaView>
     );
   }
@@ -260,9 +337,12 @@ export default function HomeScreen() {
         <ScrollView contentContainerStyle={styles.branchGrid}>
           {branches.length > 0 ? (
             branches.map((branch) => (
-              <Pressable key={branch.id} style={styles.branchCard} onPress={() => selectBranch(branch)}>
+              <Pressable
+                key={branch.id}
+                style={[styles.branchCard, { width: branchCardWidth }]}
+                onPress={() => selectBranch(branch)}>
                 <Text style={styles.branchName}>{branch.name}</Text>
-                <Text style={styles.branchAddress}>{branch.address}</Text>
+                {branch.address && <Text style={styles.branchAddress}>{branch.address}</Text>}
               </Pressable>
             ))
           ) : (
@@ -318,12 +398,18 @@ type HeaderProps = {
   title: string;
   subtitle: string;
   onBack: () => void;
+  centerContent?: ReactNode;
   rightContent?: ReactNode;
 };
 
-function Header({ scale, title, subtitle, onBack, rightContent }: HeaderProps) {
+function Header({ scale, title, subtitle, onBack, centerContent, rightContent }: HeaderProps) {
   return (
     <View style={[styles.header, { marginBottom: 26 * scale }]}>
+      {centerContent && (
+        <View pointerEvents="none" style={styles.headerCenter}>
+          {centerContent}
+        </View>
+      )}
       <View style={[styles.headerLeft, { gap: 18 * scale }]}>
         <Pressable style={[styles.backButton, { gap: 10 * scale }]} onPress={onBack}>
           <Text style={[styles.backArrow, { fontSize: 24 * scale }]}>{'<'}</Text>
@@ -343,49 +429,20 @@ function Header({ scale, title, subtitle, onBack, rightContent }: HeaderProps) {
   );
 }
 
-type LanguageSelectorProps = {
-  scale: number;
-  value: DisplayLanguage;
-  onChange: (language: DisplayLanguage) => void;
-};
-
-function LanguageSelector({ scale, value, onChange }: LanguageSelectorProps) {
-  return (
-    <View style={[styles.languageSelector, { padding: 3 * scale }]}>
-      {LANGUAGE_OPTIONS.map((option) => (
-        <Pressable
-          key={option.value}
-          onPress={() => onChange(option.value)}
-          style={[
-            styles.languageButton,
-            { paddingHorizontal: 14 * scale, paddingVertical: 7 * scale },
-            value === option.value && styles.activeLanguageButton,
-          ]}>
-          <Text
-            style={[
-              styles.languageText,
-              { fontSize: 13 * scale, lineHeight: 18 * scale },
-              value === option.value && styles.activeLanguageText,
-            ]}>
-            {option.label}
-          </Text>
-        </Pressable>
-      ))}
-    </View>
-  );
-}
-
 function CounterCard({
   item,
+  labels,
   scale,
   width,
 }: {
   item: CounterTokenDisplayItem;
+  labels: Required<DisplayLabels>;
   scale: number;
   width: number;
 }) {
   const currentToken = item.currentToken;
   const nextTokens = item.waitingTokens.slice(0, 5);
+  const counterLabel = getCompactCounterLabel(labels.counter);
 
   return (
     <View
@@ -401,8 +458,8 @@ function CounterCard({
       ]}>
       <View style={styles.cardTopRow}>
         <View style={[styles.counterLabelRow, { gap: 10 * scale }]}>
-          <Text style={[styles.soundText, { fontSize: 16 * scale, lineHeight: 22 * scale }]}>
-            Counter
+          <Text style={[styles.soundText, { fontSize: 26 * scale, lineHeight: 32 * scale }]}>
+            {counterLabel}
           </Text>
           <Text style={[styles.counterName, { fontSize: 26 * scale, lineHeight: 32 * scale }]}>
             {item.counter.name}
@@ -423,7 +480,7 @@ function CounterCard({
 
       <View style={styles.currentTokenBlock}>
         <Text style={[styles.sectionLabel, { fontSize: 18 * scale, lineHeight: 24 * scale }]}>
-          NOW SERVING
+          NOW SERVING {labels.token.toUpperCase()}
         </Text>
         <Text style={[styles.currentToken, { fontSize: 82 * scale, lineHeight: 94 * scale }]}>
           {currentToken?.ticket_number ?? '--'}
@@ -453,7 +510,7 @@ function CounterCard({
 
       <View>
         <Text style={[styles.sectionLabel, { fontSize: 18 * scale, lineHeight: 24 * scale }]}>
-          NEXT IN QUEUE
+          NEXT IN {labels.queue.toUpperCase()}
         </Text>
         {nextTokens.length > 0 ? (
           nextTokens.map((token) => (
@@ -461,7 +518,7 @@ function CounterCard({
           ))
         ) : (
           <Text style={[styles.emptyQueueText, { fontSize: 17 * scale, lineHeight: 23 * scale }]}>
-            No waiting tokens
+            No {labels.token.toLowerCase()} waiting
           </Text>
         )}
       </View>
@@ -506,6 +563,180 @@ function EmptyState({ message }: { message: string }) {
     <View style={styles.stateContainer}>
       <Text style={styles.stateText}>{message}</Text>
     </View>
+  );
+}
+
+function MediaPanel({
+  media,
+  onVideoEnd,
+  scale,
+}: {
+  media: DisplayMedia;
+  onVideoEnd: () => void;
+  scale: number;
+}) {
+  const mediaKind = getMediaKind(media);
+  const [slideX] = useState(() => new Animated.Value(0));
+  const [slideOpacity] = useState(() => new Animated.Value(1));
+
+  useEffect(() => {
+    slideX.setValue(90 * scale);
+    slideOpacity.setValue(0.35);
+
+    Animated.parallel([
+      Animated.timing(slideX, {
+        toValue: 0,
+        duration: 450,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideOpacity, {
+        toValue: 1,
+        duration: 450,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [media.id, scale, slideOpacity, slideX]);
+
+  return (
+    <View
+      style={[
+        styles.mediaPanel,
+        {
+          marginTop: -MEDIA_TOP_PULL * scale,
+          minHeight: 330 * scale,
+        },
+      ]}>
+      <Animated.View
+        style={[
+          styles.mediaSlide,
+          {
+            opacity: slideOpacity,
+            transform: [{ translateX: slideX }],
+          },
+        ]}>
+        {mediaKind === 'image' && media.url ? (
+          <Image source={{ uri: media.url }} style={styles.mediaContent} contentFit="cover" />
+        ) : mediaKind === 'video' && media.url ? (
+          <VideoMedia key={media.id} uri={media.url} onEnded={onVideoEnd} />
+        ) : mediaKind === 'web' && media.url ? (
+          <WebUrlMedia uri={media.url} onEnded={onVideoEnd} />
+        ) : (
+          <View style={styles.mediaTextContent}>
+            <Text style={[styles.mediaTextTitle, { fontSize: 22 * scale, lineHeight: 30 * scale }]}>
+              {media.name}
+            </Text>
+            {media.text_content && (
+              <Text style={[styles.mediaTextBody, { fontSize: 18 * scale, lineHeight: 26 * scale }]}>
+                {media.text_content}
+              </Text>
+            )}
+          </View>
+        )}
+      </Animated.View>
+    </View>
+  );
+}
+
+function VideoMedia({ uri, onEnded }: { uri: string; onEnded: () => void }) {
+  const hasEndedRef = useRef(false);
+  const [playerError, setPlayerError] = useState<string | null>(null);
+  const player = useVideoPlayer(uri, (videoPlayer) => {
+    videoPlayer.loop = false;
+    videoPlayer.muted = true;
+    videoPlayer.play();
+  });
+
+  useEffect(() => {
+    hasEndedRef.current = false;
+  }, [uri]);
+
+  useEventListener(player, 'statusChange', ({ status, error }) => {
+    if (status === 'readyToPlay') {
+      player.play();
+    }
+
+    if (status === 'error') {
+      setPlayerError(error?.message ?? 'Unable to play video.');
+    }
+  });
+
+  useEventListener(player, 'playToEnd', () => {
+    if (!hasEndedRef.current) {
+      hasEndedRef.current = true;
+      onEnded();
+    }
+  });
+
+  if (playerError) {
+    return (
+      <View style={styles.mediaTextContent}>
+        <Text style={styles.mediaTextTitle}>Video unavailable</Text>
+        <Text style={styles.mediaTextBody}>{playerError}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.mediaContent}
+      contentFit="cover"
+      nativeControls={false}
+      surfaceType="textureView"
+    />
+  );
+}
+
+function WebUrlMedia({ uri, onEnded }: { uri: string; onEnded: () => void }) {
+  const displayUri = getEmbeddableUrl(uri);
+  const youtubeVideoId = getYouTubeVideoId(uri);
+  const youtubeHtml = youtubeVideoId ? getYouTubeEmbedHtml(youtubeVideoId) : null;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !youtubeHtml) {
+      return;
+    }
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data === 'TOKEN_DISPLAY_MEDIA_ENDED') {
+        onEnded();
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    return () => window.removeEventListener('message', handleMessage);
+  }, [onEnded, youtubeHtml]);
+
+  if (Platform.OS === 'web') {
+    return (
+      <View style={styles.mediaContent}>
+        {createElement('iframe', {
+          src: youtubeHtml ? undefined : displayUri,
+          srcDoc: youtubeHtml,
+          style: styles.webFrame,
+          allow: 'autoplay; encrypted-media; fullscreen; picture-in-picture',
+          allowFullScreen: true,
+          title: 'Online media',
+        })}
+      </View>
+    );
+  }
+
+  return (
+    <WebView
+      source={youtubeHtml ? { html: youtubeHtml, baseUrl: 'https://www.youtube.com' } : { uri: displayUri }}
+      style={styles.mediaContent}
+      allowsFullscreenVideo
+      allowsInlineMediaPlayback
+      javaScriptEnabled
+      mediaPlaybackRequiresUserAction={false}
+      onMessage={(event) => {
+        if (event.nativeEvent.data === 'TOKEN_DISPLAY_MEDIA_ENDED') {
+          onEnded();
+        }
+      }}
+    />
   );
 }
 
@@ -637,7 +868,7 @@ function TickerBanner({
       style={[
         styles.tickerBanner,
         {
-          height: 46 * scale,
+          height: TICKER_HEIGHT * scale,
           marginHorizontal: -PAGE_HORIZONTAL_PADDING * scale,
           marginBottom: ticker.position === 'top' ? 18 * scale : 0,
           marginTop: ticker.position === 'bottom' ? 18 * scale : 0,
@@ -681,17 +912,190 @@ function getDisplayScale(width: number, height: number) {
   return Math.max(MIN_DISPLAY_SCALE, Math.min(scale, MAX_DISPLAY_SCALE));
 }
 
-function getCounterCardWidth(screenWidth: number, scale: number) {
-  const horizontalPadding = PAGE_HORIZONTAL_PADDING * scale * 2;
+function getCounterAreaWidth(screenWidth: number, scale: number, hasMedia: boolean) {
+  const availableWidth = Math.max(0, screenWidth - PAGE_HORIZONTAL_PADDING * scale * 2);
+
+  if (!hasMedia) {
+    return availableWidth;
+  }
+
+  return Math.max(360 * scale, availableWidth * 0.58);
+}
+
+function getCounterCardWidth(screenWidth: number, scale: number, hasMedia: boolean) {
   const gap = COUNTER_GRID_GAP * scale;
-  const availableWidth = Math.max(0, screenWidth - horizontalPadding);
-  const minCardWidth = 230 * scale;
+  const availableWidth = Math.max(0, screenWidth);
+  const minCardWidth = (hasMedia ? 320 : 230) * scale;
+  const maxColumns = hasMedia ? 2 : MAX_COUNTER_COLUMNS;
   const columns = Math.max(
     1,
-    Math.min(MAX_COUNTER_COLUMNS, Math.floor((availableWidth + gap) / (minCardWidth + gap))),
+    Math.min(maxColumns, Math.floor((availableWidth + gap) / (minCardWidth + gap))),
   );
 
   return (availableWidth - gap * (columns - 1)) / columns;
+}
+
+function getCompactCounterLabel(label: string) {
+  return label.split('/')[0].trim() || label;
+}
+
+function getBranchCardWidth(screenWidth: number) {
+  const gap = 18;
+  const availableWidth = Math.max(0, screenWidth - PAGE_HORIZONTAL_PADDING * 2);
+  const minCardWidth = 300;
+  const columns = Math.max(1, Math.min(3, Math.floor((availableWidth + gap) / (minCardWidth + gap))));
+
+  return Math.min(380, (availableWidth - gap * (columns - 1)) / columns);
+}
+
+function getDisplayLabels(
+  displayResponse: PublicCounterTokenDisplayResponse | null,
+  branchOrganization: Organization | null,
+): Required<DisplayLabels> {
+  const labels = displayResponse?.labels ?? displayResponse?.organization?.labels ?? branchOrganization?.labels;
+
+  return {
+    organization: labels?.organization ?? 'Organization',
+    branch: labels?.branch ?? 'Branch',
+    customer: labels?.customer ?? 'Customer',
+    staff: labels?.staff ?? 'Staff',
+    department: labels?.department ?? 'Department',
+    service: labels?.service ?? 'Service',
+    counter: labels?.counter ?? 'Counter',
+    appointment: labels?.appointment ?? 'Appointment',
+    queue: labels?.queue ?? 'Queue',
+    token: labels?.token ?? 'Token',
+  };
+}
+
+function getMediaKind(media: DisplayMedia): 'image' | 'video' | 'web' | 'text' {
+  const normalizedType = normalizeMediaType(media.type);
+
+  if (normalizedType === 'image' || normalizedType === 'video' || normalizedType === 'text') {
+    return normalizedType;
+  }
+
+  if (normalizedType === 'onlineurl' || normalizedType === 'htmlurl' || normalizedType === 'url') {
+    if (isVideoUrl(media.url)) {
+      return 'video';
+    }
+
+    if (isImageUrl(media.url)) {
+      return 'image';
+    }
+
+    if (media.url) {
+      return 'web';
+    }
+  }
+
+  return media.text_content ? 'text' : 'image';
+}
+
+function normalizeMediaType(type: string) {
+  return type.toLowerCase().replace(/[\s_-]/g, '');
+}
+
+function isImageUrl(url: string | null) {
+  return Boolean(url?.split('?')[0].match(/\.(apng|avif|gif|jpe?g|png|svg|webp)$/i));
+}
+
+function isVideoUrl(url: string | null) {
+  return Boolean(url?.split('?')[0].match(/\.(m3u8|mov|mp4|m4v|webm)$/i));
+}
+
+function getEmbeddableUrl(url: string) {
+  const youtubeVideoId = getYouTubeVideoId(url);
+
+  if (!youtubeVideoId) {
+    return url;
+  }
+
+  return `https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&mute=1&playsinline=1&rel=0`;
+}
+
+function getYouTubeEmbedHtml(videoId: string) {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body, #player {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="player"></div>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+      var player;
+      function notifyEnded() {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage('TOKEN_DISPLAY_MEDIA_ENDED');
+        }
+        window.parent.postMessage('TOKEN_DISPLAY_MEDIA_ENDED', '*');
+      }
+      function onYouTubeIframeAPIReady() {
+        player = new YT.Player('player', {
+          width: '100%',
+          height: '100%',
+          videoId: '${videoId}',
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            mute: 1,
+            playsinline: 1,
+            rel: 0
+          },
+          events: {
+            onReady: function(event) {
+              event.target.mute();
+              event.target.playVideo();
+            },
+            onStateChange: function(event) {
+              if (event.data === YT.PlayerState.ENDED) {
+                notifyEnded();
+              }
+            }
+          }
+        });
+      }
+    </script>
+  </body>
+</html>`;
+}
+
+function getYouTubeVideoId(url: string) {
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.replace(/^www\./, '');
+
+    if (hostname === 'youtu.be') {
+      return parsedUrl.pathname.split('/').filter(Boolean)[0];
+    }
+
+    if (hostname.endsWith('youtube.com')) {
+      if (parsedUrl.pathname.startsWith('/embed/')) {
+        return parsedUrl.pathname.split('/').filter(Boolean)[1];
+      }
+
+      if (parsedUrl.pathname.startsWith('/live/') || parsedUrl.pathname.startsWith('/shorts/')) {
+        return parsedUrl.pathname.split('/').filter(Boolean)[1];
+      }
+
+      return parsedUrl.searchParams.get('v');
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function getDisplayIssue(displayResponse: PublicCounterTokenDisplayResponse): DisplayIssue | null {
@@ -836,6 +1240,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 16,
     marginBottom: 26,
+    position: 'relative',
+  },
+  headerCenter: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -873,50 +1284,28 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
   },
-  refreshText: {
+  displayTimeText: {
     color: '#667085',
-    fontSize: 14,
-  },
-  languageSelector: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: '#dce2ef',
-    borderRadius: 999,
-    backgroundColor: '#ffffff',
-    padding: 3,
-  },
-  languageButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
-  activeLanguageButton: {
-    backgroundColor: '#315bd6',
-  },
-  languageText: {
-    color: '#667085',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  activeLanguageText: {
-    color: '#ffffff',
+    fontWeight: '800',
   },
   branchGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 18,
+    alignItems: 'flex-start',
     paddingBottom: 24,
   },
   branchCard: {
-    flexGrow: 1,
-    flexBasis: 360,
-    minHeight: 100,
-    borderRadius: 10,
+    flexGrow: 0,
+    flexShrink: 0,
+    minHeight: 132,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#dce1ea',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 22,
+    paddingHorizontal: 24,
     paddingVertical: 24,
+    justifyContent: 'center',
     shadowColor: '#162033',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.1,
@@ -927,11 +1316,23 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 20,
     fontWeight: '800',
-    marginBottom: 14,
+    marginBottom: 10,
   },
   branchAddress: {
     color: '#667085',
     fontSize: 16,
+  },
+  displayContent: {
+    flex: 1,
+  },
+  displayContentWithMedia: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: COUNTER_GRID_GAP,
+    alignItems: 'stretch',
+  },
+  counterPane: {
+    flex: 0.58,
   },
   counterGrid: {
     flexDirection: 'row',
@@ -1070,6 +1471,42 @@ const styles = StyleSheet.create({
     color: '#667085',
     fontSize: 16,
   },
+  mediaPanel: {
+    flex: 0.42,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    alignSelf: 'stretch',
+    borderLeftWidth: 1,
+    borderColor: '#d8dee8',
+  },
+  mediaSlide: {
+    flex: 1,
+  },
+  mediaContent: {
+    width: '100%',
+    height: '100%',
+  },
+  webFrame: {
+    width: '100%',
+    height: '100%',
+    borderWidth: 0,
+  },
+  mediaTextContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    padding: 24,
+  },
+  mediaTextTitle: {
+    color: '#0f172a',
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  mediaTextBody: {
+    color: '#475467',
+    textAlign: 'center',
+  },
   displayStatusWrapper: {
     flex: 1,
     alignItems: 'center',
@@ -1138,12 +1575,5 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.4,
     paddingHorizontal: 12,
-  },
-  refreshingText: {
-    position: 'absolute',
-    right: 24,
-    bottom: 18,
-    color: '#667085',
-    fontSize: 12,
   },
 });
