@@ -31,7 +31,7 @@ export type DisplayLabels = {
 export type Branch = {
   id: string;
   name: string;
-  address?: string;
+  address?: string | null;
 };
 
 export type Counter = {
@@ -83,8 +83,21 @@ export type DisplayMedia = {
   name: string;
   type: 'image' | 'video' | 'text' | string;
   url: string | null;
-  text_content: string | null;
-  duration_seconds: number | null;
+  text_content?: string | null;
+  duration_seconds?: number | null;
+};
+
+export type AssignedDoctor = {
+  id: string | null;
+  name: string;
+};
+
+export type HealthTip = {
+  id: string;
+  title: string;
+  message: string;
+  assignedDoctor?: AssignedDoctor | null;
+  status: 'active' | 'inactive' | string;
 };
 
 export type PublicBranchesResponse = {
@@ -101,6 +114,7 @@ export type PublicCountersResponse = {
 
 export type CounterTokenDisplayItem = {
   counter: Counter;
+  assignedDoctor?: AssignedDoctor | null;
   assignedServices: ServiceMapping[];
   currentToken: CurrentToken | null;
   waitingTokens: WaitingToken[];
@@ -117,4 +131,5 @@ export type PublicCounterTokenDisplayResponse = {
   displayStatus?: 'ONLINE' | 'OFFLINE' | string;
   display?: TokenDisplay | null;
   media?: DisplayMedia[];
+  healthTips?: HealthTip[];
 };

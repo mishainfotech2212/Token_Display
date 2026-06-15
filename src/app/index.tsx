@@ -30,6 +30,7 @@ import {
   CounterTokenDisplayItem,
   DisplayLabels,
   DisplayMedia,
+  HealthTip,
   Organization,
   PublicCounterTokenDisplayResponse,
   TokenDisplayTicker,
@@ -45,8 +46,133 @@ const MAX_DISPLAY_SCALE = 2.4;
 const PAGE_HORIZONTAL_PADDING = 24;
 const COUNTER_GRID_GAP = 18;
 const MAX_COUNTER_COLUMNS = 4;
-const MEDIA_TOP_PULL = 82;
 const TICKER_HEIGHT = 46;
+const STATIC_HEALTH_TIP =
+  'Please drink enough water and avoid skipping your prescribed medicines.';
+
+const STATIC_TOKEN_DISPLAY: PublicCounterTokenDisplayResponse = {
+  success: true,
+  organization: {
+    id: 'static-org',
+    name: 'Noida Clinic',
+    labels: {
+      counter: 'Room / Chamber',
+      customer: 'Patient',
+      queue: 'Patient Queue',
+      token: 'Token',
+    },
+  },
+  labels: {
+    counter: 'Room / Chamber',
+    customer: 'Patient',
+    queue: 'Patient Queue',
+    token: 'Token',
+  },
+  branch: {
+    id: 'static-branch',
+    name: 'Noida Clinic',
+  },
+  counters: [
+    {
+      counter: {
+        id: 'room-001',
+        name: '001',
+        number: 1,
+        status: 'active',
+      },
+      assignedServices: [
+        {
+          id: 'doctor-amit',
+          name: 'Dr. Amit Sharma',
+          color: '#315bd6',
+          code: 'DR-AMIT',
+        },
+      ],
+      assignedDoctor: {
+        id: 'doctor-amit',
+        name: 'Dr. Amit Sharma',
+      },
+      currentToken: {
+        ticket_number: 'A-102',
+        status: 'serving',
+        service_name: 'General Consultation',
+        service_color: '#315bd6',
+        called_at: '2026-06-12T12:26:04.000Z',
+      },
+      waitingTokens: [
+        { ticket_number: 'A-103', service_name: 'General Consultation', service_color: '#315bd6' },
+        { ticket_number: 'A-104', service_name: 'General Consultation', service_color: '#315bd6' },
+        { ticket_number: 'A-105', service_name: 'General Consultation', service_color: '#315bd6' },
+      ],
+    },
+    {
+      counter: {
+        id: 'room-002',
+        name: '002',
+        number: 2,
+        status: 'active',
+      },
+      assignedServices: [
+        {
+          id: 'doctor-neha',
+          name: 'Dr. Neha Verma',
+          color: '#315bd6',
+          code: 'DR-NEHA',
+        },
+      ],
+      assignedDoctor: {
+        id: 'doctor-neha',
+        name: 'Dr. Neha Verma',
+      },
+      currentToken: {
+        ticket_number: 'B-018',
+        status: 'serving',
+        service_name: 'Dental Care',
+        service_color: '#315bd6',
+        called_at: '2026-06-12T12:26:04.000Z',
+      },
+      waitingTokens: [
+        { ticket_number: 'B-019', service_name: 'Dental Care', service_color: '#315bd6' },
+        { ticket_number: 'B-020', service_name: 'Dental Care', service_color: '#315bd6' },
+      ],
+    },
+  ],
+  last_updated: '2026-06-12T12:26:04.000Z',
+  displayAllowed: true,
+  displayStatus: 'ONLINE',
+  display: {
+    id: 'static-display',
+    name: 'Clinic Display',
+    code: 'STATIC',
+    status: 'online',
+    ticker: {
+      enabled: true,
+      message:
+        'Noida Clinic • Please wait for your token number • Emergency patients will be given priority • Thank you for your patience',
+      speed: 'normal',
+      position: 'bottom',
+    },
+  },
+  media: [
+    {
+      id: 'static-carousel-placeholder',
+      name: 'Image / Video Carousel Area',
+      type: 'text',
+      url: null,
+      text_content: null,
+      duration_seconds: 10,
+    },
+  ],
+  healthTips: [
+    {
+      id: 'static-health-tip',
+      title: 'Health Tip',
+      message: STATIC_HEALTH_TIP,
+      assignedDoctor: null,
+      status: 'active',
+    },
+  ],
+};
 
 export default function HomeScreen() {
   const { height, width } = useWindowDimensions();
@@ -58,22 +184,29 @@ export default function HomeScreen() {
   const [language] = useState<DisplayLanguage>('en');
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isLoadingDisplay, setIsLoadingDisplay] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
+  const [clockTime, setClockTime] = useState(() => new Date());
   const previousServingTokensRef = useRef<Map<string, string>>(new Map());
-
-  const activeCounters = useMemo(
-    () => tokenDisplay?.counters.filter((item) => item.counter.status === 'active') ?? [],
+  const displayData = useMemo(
+    () => (tokenDisplay ? mergeTokenDisplayWithFallback(tokenDisplay) : null),
     [tokenDisplay],
   );
+  const selectedDisplayBranch = selectedBranch;
+
+  const activeCounters = useMemo(
+    () => displayData?.counters.filter((item) => item.counter.status === 'active') ?? [],
+    [displayData],
+  );
   const displayScale = useMemo(() => getDisplayScale(width, height), [height, width]);
-  const displayIssue = tokenDisplay ? getDisplayIssue(tokenDisplay) : null;
-  const ticker = tokenDisplay?.display?.ticker;
+  const displayIssue = displayData ? getDisplayIssue(displayData) : null;
+  const ticker = displayData?.display?.ticker;
   const showTopTicker = shouldShowTicker(ticker, 'top');
   const showBottomTicker = shouldShowTicker(ticker, 'bottom');
-  const labels = useMemo(() => getDisplayLabels(tokenDisplay, organization), [organization, tokenDisplay]);
-  const mediaItems = useMemo(() => tokenDisplay?.media ?? [], [tokenDisplay?.media]);
+  const labels = useMemo(() => getDisplayLabels(displayData, organization), [displayData, organization]);
+  const mediaItems = useMemo(() => displayData?.media ?? [], [displayData?.media]);
+  const activeHealthTip = useMemo(() => getActiveHealthTip(displayData), [displayData]);
   const hasMedia = mediaItems.length > 0;
   const currentMediaIndex = mediaItems.length ? Math.min(activeMediaIndex, mediaItems.length - 1) : 0;
   const currentMedia = mediaItems[currentMediaIndex];
@@ -89,6 +222,7 @@ export default function HomeScreen() {
     () => getCounterCardWidth(counterAreaWidth, displayScale, hasMedia),
     [counterAreaWidth, displayScale, hasMedia],
   );
+  const displayShellWidth = Math.max(0, width - PAGE_HORIZONTAL_PADDING * displayScale * 2);
   const branchCardWidth = useMemo(() => getBranchCardWidth(width), [width]);
   const advanceMedia = useCallback(() => {
     if (mediaItems.length <= 1) {
@@ -243,81 +377,98 @@ export default function HomeScreen() {
     return () => speechService.stop();
   }, []);
 
-  if (selectedBranch) {
+  useEffect(() => {
+    const interval = setInterval(() => setClockTime(new Date()), 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  if (selectedDisplayBranch) {
     return (
       <SafeAreaView
         style={[
           styles.page,
           {
             paddingHorizontal: PAGE_HORIZONTAL_PADDING * displayScale,
-            paddingTop: hasMedia ? 0 : 20 * displayScale,
+            paddingTop: 22 * displayScale,
             paddingBottom: showBottomTicker ? 0 : 20 * displayScale,
           },
         ]}>
-        <Header
-          scale={displayScale}
-          title={tokenDisplay?.branch.name ?? selectedBranch.name}
-          subtitle={`${tokenDisplay?.organization?.name ?? organization?.name ?? labels.organization} - Live ${labels.counter} Display`}
-          onBack={resetToBranches}
-          centerContent={
-            tokenDisplay?.last_updated ? (
-              <Text
+        <View style={styles.displayShell}>
+          <Header
+            scale={displayScale}
+            title={displayData?.branch.name ?? selectedDisplayBranch.name}
+            subtitle={`Live ${labels.counter} Display`}
+            onBack={resetToBranches}
+            centerContent={
+              <View
                 style={[
-                  styles.displayTimeText,
-                  { fontSize: 18 * displayScale, lineHeight: 24 * displayScale },
+                  styles.clockPill,
+                  {
+                    borderRadius: 11 * displayScale,
+                    paddingHorizontal: 18 * displayScale,
+                    paddingVertical: 9 * displayScale,
+                  },
                 ]}>
-                {formatTime(tokenDisplay.last_updated)}
-              </Text>
-            ) : null
-          }
-        />
+                <Text
+                  style={[
+                    styles.displayTimeText,
+                    { fontSize: 23 * displayScale, lineHeight: 30 * displayScale },
+                  ]}>
+                  {formatClockTime(clockTime)}
+                </Text>
+              </View>
+            }
+          />
 
-        {error && <StatusMessage message={error} type="error" />}
+          {error && <StatusMessage message={error} type="error" />}
 
-        {isLoadingDisplay && !tokenDisplay ? (
-          <LoadingState label="Loading counter display..." />
-        ) : displayIssue ? (
-          <DisplayStatusCard issue={displayIssue} onBack={resetToBranches} scale={displayScale} />
-        ) : (
-          <>
-            {showTopTicker && <TickerBanner ticker={ticker} scale={displayScale} width={width} />}
-            <View
-              style={[
-                hasMedia ? styles.displayContentWithMedia : styles.displayContent,
-                hasMedia && { gap: COUNTER_GRID_GAP * displayScale },
-                showBottomTicker && { marginBottom: TICKER_HEIGHT * displayScale },
-              ]}>
-              <ScrollView
-                style={hasMedia && styles.counterPane}
-                contentContainerStyle={[
-                  styles.counterGrid,
-                  { gap: COUNTER_GRID_GAP * displayScale },
+          {isLoadingDisplay && !displayData ? (
+            <LoadingState label="Loading counter display..." />
+          ) : displayIssue ? (
+            <DisplayStatusCard issue={displayIssue} onBack={resetToBranches} scale={displayScale} />
+          ) : (
+            <>
+              {showTopTicker && <TickerBanner ticker={ticker} scale={displayScale} width={displayShellWidth} />}
+              <View
+                style={[
+                  hasMedia ? styles.displayContentWithMedia : styles.displayContent,
+                  hasMedia && { gap: COUNTER_GRID_GAP * displayScale },
+                  showBottomTicker && { marginBottom: TICKER_HEIGHT * displayScale },
                 ]}>
-                {activeCounters.length > 0 ? (
-                  activeCounters.map((item) => (
-                    <CounterCard
-                      key={item.counter.id}
-                      item={item}
-                      labels={labels}
-                      scale={displayScale}
-                      width={counterCardWidth}
-                    />
-                  ))
-                ) : (
-                  <EmptyState message={`No active ${labels.counter.toLowerCase()} found for this branch.`} />
+                <ScrollView
+                  style={hasMedia && styles.counterPane}
+                  contentContainerStyle={[
+                    styles.counterGrid,
+                    { gap: COUNTER_GRID_GAP * displayScale },
+                  ]}>
+                  {activeCounters.length > 0 ? (
+                    activeCounters.map((item) => (
+                      <CounterCard
+                        key={item.counter.id}
+                        item={item}
+                        labels={labels}
+                        scale={displayScale}
+                        width={counterCardWidth}
+                      />
+                    ))
+                  ) : (
+                    <EmptyState message={`No active ${labels.counter.toLowerCase()} found for this branch.`} />
+                  )}
+                </ScrollView>
+                {currentMedia && (
+                  <ClinicUpdatesPanel
+                    healthTip={activeHealthTip}
+                    media={currentMedia}
+                    onVideoEnd={advanceMedia}
+                    scale={displayScale}
+                  />
                 )}
-              </ScrollView>
-              {currentMedia && (
-                <MediaPanel
-                  media={currentMedia}
-                  onVideoEnd={advanceMedia}
-                  scale={displayScale}
-                />
-              )}
-            </View>
-            {showBottomTicker && <TickerBanner ticker={ticker} scale={displayScale} width={width} />}
-          </>
-        )}
+              </View>
+              {showBottomTicker && <TickerBanner ticker={ticker} scale={displayScale} width={displayShellWidth} />}
+            </>
+          )}
+        </View>
 
       </SafeAreaView>
     );
@@ -397,7 +548,7 @@ type HeaderProps = {
   scale: number;
   title: string;
   subtitle: string;
-  onBack: () => void;
+  onBack?: () => void;
   centerContent?: ReactNode;
   rightContent?: ReactNode;
 };
@@ -411,15 +562,17 @@ function Header({ scale, title, subtitle, onBack, centerContent, rightContent }:
         </View>
       )}
       <View style={[styles.headerLeft, { gap: 18 * scale }]}>
-        <Pressable style={[styles.backButton, { gap: 10 * scale }]} onPress={onBack}>
-          <Text style={[styles.backArrow, { fontSize: 24 * scale }]}>{'<'}</Text>
-          <Text style={[styles.backText, { fontSize: 16 * scale }]}>Back</Text>
-        </Pressable>
+        {onBack && (
+          <Pressable style={[styles.backButton, { gap: 10 * scale }]} onPress={onBack}>
+            <Text style={[styles.backArrow, { fontSize: 24 * scale }]}>{'<'}</Text>
+            <Text style={[styles.backText, { fontSize: 16 * scale }]}>Back</Text>
+          </Pressable>
+        )}
         <View>
-          <Text style={[styles.headerTitle, { fontSize: 22 * scale, lineHeight: 28 * scale }]}>
+          <Text style={[styles.headerTitle, { fontSize: 30 * scale, lineHeight: 36 * scale }]}>
             {title}
           </Text>
-          <Text style={[styles.headerSubtitle, { fontSize: 16 * scale, lineHeight: 22 * scale }]}>
+          <Text style={[styles.headerSubtitle, { fontSize: 15 * scale, lineHeight: 21 * scale }]}>
             {subtitle}
           </Text>
         </View>
@@ -427,6 +580,21 @@ function Header({ scale, title, subtitle, onBack, centerContent, rightContent }:
       {rightContent}
     </View>
   );
+}
+
+function getAssignedDoctorDisplayText(item: CounterTokenDisplayItem) {
+  const doctorName = item.assignedDoctor?.name?.trim();
+
+  if (!doctorName) {
+    return null;
+  }
+
+  const serviceNames = item.assignedServices
+    .map((service) => service.name.trim())
+    .filter(Boolean)
+    .join(', ');
+
+  return serviceNames ? `${doctorName} - ${serviceNames}` : doctorName;
 }
 
 function CounterCard({
@@ -441,8 +609,9 @@ function CounterCard({
   width: number;
 }) {
   const currentToken = item.currentToken;
-  const nextTokens = item.waitingTokens.slice(0, 5);
+  const nextTokens = item.waitingTokens.slice(0, 3);
   const counterLabel = getCompactCounterLabel(labels.counter);
+  const staffName = getAssignedDoctorDisplayText(item);
 
   return (
     <View
@@ -451,24 +620,31 @@ function CounterCard({
         {
           borderRadius: 12 * scale,
           width,
-          minHeight: 330 * scale,
-          paddingHorizontal: 32 * scale,
-          paddingVertical: 30 * scale,
+          minHeight: 354 * scale,
+          paddingHorizontal: 20 * scale,
+          paddingVertical: 22 * scale,
         },
       ]}>
       <View style={styles.cardTopRow}>
-        <View style={[styles.counterLabelRow, { gap: 10 * scale }]}>
-          <Text style={[styles.soundText, { fontSize: 26 * scale, lineHeight: 32 * scale }]}>
-            {counterLabel}
-          </Text>
-          <Text style={[styles.counterName, { fontSize: 26 * scale, lineHeight: 32 * scale }]}>
-            {item.counter.name}
-          </Text>
+        <View>
+          <View style={[styles.counterLabelRow, { gap: 8 * scale }]}>
+            <Text style={[styles.soundText, { fontSize: 26 * scale, lineHeight: 32 * scale }]}>
+              {counterLabel}
+            </Text>
+            <Text style={[styles.counterName, { fontSize: 25 * scale, lineHeight: 32 * scale }]}>
+              {item.counter.name}
+            </Text>
+          </View>
+          {staffName && (
+            <Text style={[styles.staffName, { fontSize: 13 * scale, lineHeight: 18 * scale }]}>
+              {staffName}
+            </Text>
+          )}
         </View>
         <View
           style={[
             styles.servingBadge,
-            { paddingHorizontal: 18 * scale, paddingVertical: 9 * scale },
+            { paddingHorizontal: 17 * scale, paddingVertical: 8 * scale },
           ]}>
           <Text style={[styles.servingBadgeText, { fontSize: 15 * scale, lineHeight: 20 * scale }]}>
             Now Serving
@@ -476,46 +652,32 @@ function CounterCard({
         </View>
       </View>
 
-      <View style={[styles.divider, { marginVertical: 24 * scale }]} />
+      <View style={[styles.divider, { marginVertical: 16 * scale }]} />
 
       <View style={styles.currentTokenBlock}>
-        <Text style={[styles.sectionLabel, { fontSize: 18 * scale, lineHeight: 24 * scale }]}>
-          NOW SERVING {labels.token.toUpperCase()}
+        <Text style={[styles.sectionLabel, { fontSize: 18 * scale, lineHeight: 25 * scale }]}>
+          NOW SERVING {labels.customer.toUpperCase()}
         </Text>
-        <Text style={[styles.currentToken, { fontSize: 82 * scale, lineHeight: 94 * scale }]}>
+        <Text style={[styles.sectionLabel, { fontSize: 18 * scale, lineHeight: 25 * scale }]}>
+          {labels.token.toUpperCase()}
+        </Text>
+        <Text style={[styles.currentToken, { fontSize: 72 * scale, lineHeight: 86 * scale }]}>
           {currentToken?.ticket_number ?? '--'}
         </Text>
-        {currentToken && (
-          <View
-            style={[
-              styles.servicePill,
-              {
-                borderColor: currentToken.service_color,
-                paddingHorizontal: 16 * scale,
-                paddingVertical: 7 * scale,
-              },
-            ]}>
-            <Text
-              style={[
-                styles.servicePillText,
-                { color: currentToken.service_color, fontSize: 17 * scale, lineHeight: 23 * scale },
-              ]}>
-              {currentToken.service_name}
-            </Text>
-          </View>
-        )}
       </View>
 
-      <View style={[styles.divider, { marginVertical: 24 * scale }]} />
+      <View style={[styles.divider, { marginVertical: 14 * scale }]} />
 
       <View>
-        <Text style={[styles.sectionLabel, { fontSize: 18 * scale, lineHeight: 24 * scale }]}>
+        <Text style={[styles.sectionLabel, { fontSize: 16 * scale, lineHeight: 22 * scale, textAlign: 'left' }]}>
           NEXT IN {labels.queue.toUpperCase()}
         </Text>
         {nextTokens.length > 0 ? (
-          nextTokens.map((token) => (
-            <WaitingTokenRow key={token.ticket_number} token={token} scale={scale} />
-          ))
+          <View style={[styles.waitingTokenRow, { gap: 10 * scale, marginTop: 8 * scale }]}>
+            {nextTokens.map((token) => (
+              <WaitingTokenChip key={token.ticket_number} token={token} scale={scale} />
+            ))}
+          </View>
         ) : (
           <Text style={[styles.emptyQueueText, { fontSize: 17 * scale, lineHeight: 23 * scale }]}>
             No {labels.token.toLowerCase()} waiting
@@ -526,16 +688,19 @@ function CounterCard({
   );
 }
 
-function WaitingTokenRow({ token, scale }: { token: WaitingToken; scale: number }) {
+function WaitingTokenChip({ token, scale }: { token: WaitingToken; scale: number }) {
   return (
-    <View style={[styles.waitingTokenRow, { marginTop: 12 * scale }]}>
-      <Text
-        style={[styles.waitingTokenNumber, { fontSize: 18 * scale, lineHeight: 25 * scale }]}>
+    <View
+      style={[
+        styles.waitingTokenChip,
+        {
+          borderRadius: 8 * scale,
+          paddingHorizontal: 14 * scale,
+          paddingVertical: 9 * scale,
+        },
+      ]}>
+      <Text style={[styles.waitingTokenNumber, { fontSize: 18 * scale, lineHeight: 24 * scale }]}>
         {token.ticket_number}
-      </Text>
-      <Text
-        style={[styles.waitingTokenService, { fontSize: 18 * scale, lineHeight: 25 * scale }]}>
-        {token.service_name}
       </Text>
     </View>
   );
@@ -566,73 +731,90 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function MediaPanel({
+function ClinicUpdatesPanel({
+  healthTip,
   media,
   onVideoEnd,
   scale,
 }: {
+  healthTip: HealthTip | null;
   media: DisplayMedia;
   onVideoEnd: () => void;
   scale: number;
 }) {
   const mediaKind = getMediaKind(media);
-  const [slideX] = useState(() => new Animated.Value(0));
-  const [slideOpacity] = useState(() => new Animated.Value(1));
-
-  useEffect(() => {
-    slideX.setValue(90 * scale);
-    slideOpacity.setValue(0.35);
-
-    Animated.parallel([
-      Animated.timing(slideX, {
-        toValue: 0,
-        duration: 450,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideOpacity, {
-        toValue: 1,
-        duration: 450,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [media.id, scale, slideOpacity, slideX]);
+  const showPlaceholder = !media.url && !media.text_content;
+  const healthTipTitle = healthTip?.title?.trim() || 'Health Tip';
+  const healthTipMessage = healthTip?.message?.trim() || STATIC_HEALTH_TIP;
 
   return (
-    <View
-      style={[
-        styles.mediaPanel,
-        {
-          marginTop: -MEDIA_TOP_PULL * scale,
-          minHeight: 330 * scale,
-        },
-      ]}>
-      <Animated.View
-        style={[
-          styles.mediaSlide,
-          {
-            opacity: slideOpacity,
-            transform: [{ translateX: slideX }],
-          },
-        ]}>
-        {mediaKind === 'image' && media.url ? (
-          <Image source={{ uri: media.url }} style={styles.mediaContent} contentFit="cover" />
-        ) : mediaKind === 'video' && media.url ? (
-          <VideoMedia key={media.id} uri={media.url} onEnded={onVideoEnd} />
-        ) : mediaKind === 'web' && media.url ? (
-          <WebUrlMedia uri={media.url} onEnded={onVideoEnd} />
-        ) : (
-          <View style={styles.mediaTextContent}>
-            <Text style={[styles.mediaTextTitle, { fontSize: 22 * scale, lineHeight: 30 * scale }]}>
-              {media.name}
+    <View style={styles.clinicUpdatesPanel}>
+      <View style={[styles.clinicUpdatesHeader, { minHeight: 60 * scale }]}>
+        <Text
+          style={[
+            styles.clinicUpdatesTitle,
+            { fontSize: 25 * scale, lineHeight: 32 * scale },
+          ]}>
+          Clinic Updates
+        </Text>
+      </View>
+
+      <View style={[styles.clinicUpdatesBody, { padding: 20 * scale, gap: 18 * scale }]}>
+        <View
+          style={[
+            styles.carouselCard,
+            {
+              borderRadius: 12 * scale,
+              minHeight: 200 * scale,
+            },
+          ]}>
+          {showPlaceholder ? (
+            <Text
+              style={[
+                styles.carouselPlaceholderText,
+                { fontSize: 23 * scale, lineHeight: 29 * scale },
+              ]}>
+              Image / Video{'\n'}Carousel Area
             </Text>
-            {media.text_content && (
-              <Text style={[styles.mediaTextBody, { fontSize: 18 * scale, lineHeight: 26 * scale }]}>
-                {media.text_content}
+          ) : mediaKind === 'image' && media.url ? (
+            <View style={styles.mediaFrame}>
+              <Image source={{ uri: media.url }} style={styles.mediaFill} contentFit="cover" />
+            </View>
+          ) : mediaKind === 'video' && media.url ? (
+            <VideoMedia key={media.id} uri={media.url} onEnded={onVideoEnd} />
+          ) : mediaKind === 'web' && media.url ? (
+            <WebUrlMedia uri={media.url} onEnded={onVideoEnd} />
+          ) : (
+            <View style={styles.mediaTextContent}>
+              <Text style={[styles.carouselPlaceholderText, { fontSize: 21 * scale }]}>
+                {media.name}
               </Text>
-            )}
-          </View>
-        )}
-      </Animated.View>
+              {media.text_content && (
+                <Text style={[styles.mediaTextBody, { fontSize: 16 * scale, lineHeight: 24 * scale }]}>
+                  {media.text_content}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        <View
+          style={[
+            styles.healthTipCard,
+            {
+              borderRadius: 12 * scale,
+              paddingHorizontal: 18 * scale,
+              paddingVertical: 16 * scale,
+            },
+          ]}>
+          <Text style={[styles.healthTipTitle, { fontSize: 19 * scale, lineHeight: 25 * scale }]}>
+            {healthTipTitle}
+          </Text>
+          <Text style={[styles.healthTipText, { fontSize: 16 * scale, lineHeight: 24 * scale }]}>
+            {healthTipMessage}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -677,13 +859,15 @@ function VideoMedia({ uri, onEnded }: { uri: string; onEnded: () => void }) {
   }
 
   return (
-    <VideoView
-      player={player}
-      style={styles.mediaContent}
-      contentFit="cover"
-      nativeControls={false}
-      surfaceType="textureView"
-    />
+    <View style={styles.mediaFrame}>
+      <VideoView
+        player={player}
+        style={styles.mediaFill}
+        contentFit="cover"
+        nativeControls={false}
+        surfaceType="textureView"
+      />
+    </View>
   );
 }
 
@@ -710,7 +894,7 @@ function WebUrlMedia({ uri, onEnded }: { uri: string; onEnded: () => void }) {
 
   if (Platform.OS === 'web') {
     return (
-      <View style={styles.mediaContent}>
+      <View style={styles.mediaFrame}>
         {createElement('iframe', {
           src: youtubeHtml ? undefined : displayUri,
           srcDoc: youtubeHtml,
@@ -724,19 +908,21 @@ function WebUrlMedia({ uri, onEnded }: { uri: string; onEnded: () => void }) {
   }
 
   return (
-    <WebView
-      source={youtubeHtml ? { html: youtubeHtml, baseUrl: 'https://www.youtube.com' } : { uri: displayUri }}
-      style={styles.mediaContent}
-      allowsFullscreenVideo
-      allowsInlineMediaPlayback
-      javaScriptEnabled
-      mediaPlaybackRequiresUserAction={false}
-      onMessage={(event) => {
-        if (event.nativeEvent.data === 'TOKEN_DISPLAY_MEDIA_ENDED') {
-          onEnded();
-        }
-      }}
-    />
+    <View style={styles.mediaFrame}>
+      <WebView
+        source={youtubeHtml ? { html: youtubeHtml, baseUrl: 'https://www.youtube.com' } : { uri: displayUri }}
+        style={styles.mediaFill}
+        allowsFullscreenVideo
+        allowsInlineMediaPlayback
+        javaScriptEnabled
+        mediaPlaybackRequiresUserAction={false}
+        onMessage={(event) => {
+          if (event.nativeEvent.data === 'TOKEN_DISPLAY_MEDIA_ENDED') {
+            onEnded();
+          }
+        }}
+      />
+    </View>
   );
 }
 
@@ -893,14 +1079,9 @@ function TickerBanner({
   );
 }
 
-function formatTime(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  return date.toLocaleTimeString([], {
+function formatClockTime(value: Date) {
+  return value.toLocaleTimeString([], {
+    hour12: false,
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -919,13 +1100,13 @@ function getCounterAreaWidth(screenWidth: number, scale: number, hasMedia: boole
     return availableWidth;
   }
 
-  return Math.max(360 * scale, availableWidth * 0.58);
+  return Math.max(620 * scale, availableWidth * 0.7);
 }
 
 function getCounterCardWidth(screenWidth: number, scale: number, hasMedia: boolean) {
   const gap = COUNTER_GRID_GAP * scale;
   const availableWidth = Math.max(0, screenWidth);
-  const minCardWidth = (hasMedia ? 320 : 230) * scale;
+  const minCardWidth = (hasMedia ? 300 : 230) * scale;
   const maxColumns = hasMedia ? 2 : MAX_COUNTER_COLUMNS;
   const columns = Math.max(
     1,
@@ -965,6 +1146,121 @@ function getDisplayLabels(
     appointment: labels?.appointment ?? 'Appointment',
     queue: labels?.queue ?? 'Queue',
     token: labels?.token ?? 'Token',
+  };
+}
+
+function getActiveHealthTip(displayResponse: PublicCounterTokenDisplayResponse | null) {
+  const healthTips = displayResponse?.healthTips ?? STATIC_TOKEN_DISPLAY.healthTips ?? [];
+  return healthTips.find((tip) => tip.status?.toLowerCase() === 'active') ?? healthTips[0] ?? null;
+}
+
+function mergeTokenDisplayWithFallback(
+  response: PublicCounterTokenDisplayResponse,
+): PublicCounterTokenDisplayResponse {
+  const fallbackDisplay = STATIC_TOKEN_DISPLAY.display;
+  const fallbackTicker = STATIC_TOKEN_DISPLAY.display?.ticker ?? null;
+  const responseTicker = response.display?.ticker;
+  const fallbackMedia = STATIC_TOKEN_DISPLAY.media ?? [];
+  const hasResponseMedia = Array.isArray(response.media) && response.media.length > 0;
+  const hasResponseCounters = Array.isArray(response.counters) && response.counters.length > 0;
+  const hasResponseHealthTips = Array.isArray(response.healthTips) && response.healthTips.length > 0;
+
+  return {
+    ...STATIC_TOKEN_DISPLAY,
+    ...response,
+    organization: {
+      id: response.organization?.id ?? STATIC_TOKEN_DISPLAY.organization?.id ?? 'static-org',
+      name: response.organization?.name ?? STATIC_TOKEN_DISPLAY.organization?.name ?? 'Noida Clinic',
+      ...response.organization,
+      labels: {
+        ...STATIC_TOKEN_DISPLAY.organization?.labels,
+        ...response.organization?.labels,
+      },
+    },
+    labels: {
+      ...STATIC_TOKEN_DISPLAY.labels,
+      ...response.labels,
+    },
+    branch: {
+      ...STATIC_TOKEN_DISPLAY.branch,
+      ...response.branch,
+    },
+    counters: hasResponseCounters
+      ? response.counters.map((item, index) => mergeCounterWithFallback(item, index))
+      : STATIC_TOKEN_DISPLAY.counters,
+    displayAllowed: response.displayAllowed ?? STATIC_TOKEN_DISPLAY.displayAllowed,
+    displayStatus: response.displayStatus ?? STATIC_TOKEN_DISPLAY.displayStatus,
+    display:
+      response.display === null
+        ? fallbackDisplay
+        : {
+            ...(fallbackDisplay ?? {
+              id: 'display',
+              name: 'Clinic Display',
+              code: 'DISPLAY',
+              status: 'online',
+              ticker: fallbackTicker,
+            }),
+            ...response.display,
+            ticker: responseTicker
+              ? {
+                  ...(fallbackTicker ?? {
+                    enabled: true,
+                    message: '',
+                    position: 'bottom',
+                    speed: 'normal',
+                  }),
+                  ...responseTicker,
+                  message: responseTicker.message?.trim() || fallbackTicker?.message || '',
+                  position: responseTicker.position || fallbackTicker?.position || 'bottom',
+                  speed: responseTicker.speed || fallbackTicker?.speed || 'normal',
+                  enabled: responseTicker.enabled ?? fallbackTicker?.enabled ?? true,
+                }
+              : fallbackTicker,
+          },
+    media: hasResponseMedia
+      ? response.media?.map((item, index) => ({
+          ...fallbackMedia[index % fallbackMedia.length],
+          ...item,
+          id: item.id || fallbackMedia[index % fallbackMedia.length]?.id || `media-${index}`,
+          name: item.name || fallbackMedia[index % fallbackMedia.length]?.name || 'Clinic Update',
+          type: item.type || fallbackMedia[index % fallbackMedia.length]?.type || 'text',
+          duration_seconds:
+            item.duration_seconds ?? fallbackMedia[index % fallbackMedia.length]?.duration_seconds ?? 10,
+        }))
+      : fallbackMedia,
+    healthTips: hasResponseHealthTips ? response.healthTips : STATIC_TOKEN_DISPLAY.healthTips,
+  };
+}
+
+function mergeCounterWithFallback(item: CounterTokenDisplayItem, index: number): CounterTokenDisplayItem {
+  const fallback = STATIC_TOKEN_DISPLAY.counters[index % STATIC_TOKEN_DISPLAY.counters.length];
+  const assignedServices = Array.isArray(item.assignedServices) ? item.assignedServices : [];
+  const waitingTokens = Array.isArray(item.waitingTokens) ? item.waitingTokens : [];
+
+  return {
+    ...fallback,
+    ...item,
+    counter: {
+      ...fallback.counter,
+      ...item.counter,
+      id: item.counter.id || fallback.counter.id,
+      name: item.counter.name || fallback.counter.name,
+      status: item.counter.status || fallback.counter.status,
+    },
+    assignedDoctor: item.assignedDoctor ?? null,
+    assignedServices: assignedServices.length > 0 ? assignedServices : fallback.assignedServices,
+    currentToken: item.currentToken
+      ? {
+          ...fallback.currentToken,
+          ...item.currentToken,
+          ticket_number: item.currentToken.ticket_number || fallback.currentToken?.ticket_number || '--',
+          service_name: item.currentToken.service_name || fallback.currentToken?.service_name || '',
+          service_color: item.currentToken.service_color || fallback.currentToken?.service_color || '#315bd6',
+          called_at: item.currentToken.called_at || fallback.currentToken?.called_at || new Date().toISOString(),
+        }
+      : item.currentToken,
+    waitingTokens,
   };
 }
 
@@ -1134,9 +1430,24 @@ function getTickerDuration(distance: number, speed: string) {
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: '#f5f7fb',
+    backgroundColor: '#eef2f8',
     paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingVertical: 14,
+  },
+  displayShell: {
+    flex: 1,
+    overflow: 'hidden',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#dde3ee',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    shadowColor: '#14213d',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    elevation: 5,
   },
   centerPage: {
     alignItems: 'center',
@@ -1239,7 +1550,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     gap: 16,
-    marginBottom: 26,
+    marginBottom: 18,
     position: 'relative',
   },
   headerCenter: {
@@ -1273,10 +1584,10 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: '#111827',
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   headerSubtitle: {
-    color: '#667085',
+    color: '#5f6673',
     fontSize: 16,
     marginTop: 3,
   },
@@ -1285,8 +1596,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   displayTimeText: {
-    color: '#667085',
-    fontWeight: '800',
+    color: '#315bd6',
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+  clockPill: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    elevation: 4,
   },
   branchGrid: {
     flexDirection: 'row',
@@ -1332,7 +1652,7 @@ const styles = StyleSheet.create({
     alignItems: 'stretch',
   },
   counterPane: {
-    flex: 0.58,
+    flex: 0.7,
   },
   counterGrid: {
     flexDirection: 'row',
@@ -1345,16 +1665,16 @@ const styles = StyleSheet.create({
     flexGrow: 0,
     flexShrink: 0,
     borderWidth: 2,
-    borderColor: '#6d88f2',
-    borderRadius: 12,
+    borderColor: '#2f68d8',
+    borderRadius: 16,
     backgroundColor: '#ffffff',
     paddingHorizontal: 26,
     paddingVertical: 26,
-    shadowColor: '#315bd6',
+    shadowColor: '#111827',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -1375,7 +1695,12 @@ const styles = StyleSheet.create({
   counterName: {
     color: '#111827',
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  staffName: {
+    color: '#4b5563',
+    fontWeight: '700',
+    marginTop: 6,
   },
   servingBadge: {
     backgroundColor: '#315bd6',
@@ -1390,21 +1715,22 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: '#dfe3eb',
+    backgroundColor: '#e0e4ec',
     marginVertical: 20,
   },
   currentTokenBlock: {
     alignItems: 'center',
   },
   sectionLabel: {
-    color: '#777f8c',
+    color: '#687280',
     fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-    marginBottom: 8,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+    marginBottom: 0,
+    textAlign: 'center',
   },
   currentToken: {
-    color: '#20232d',
+    color: '#111827',
     fontSize: 54,
     lineHeight: 62,
     fontWeight: '900',
@@ -1423,12 +1749,21 @@ const styles = StyleSheet.create({
   },
   waitingTokenRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
     gap: 12,
     marginTop: 10,
   },
+  waitingTokenChip: {
+    backgroundColor: '#f0f5ff',
+    shadowColor: '#315bd6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 1,
+  },
   waitingTokenNumber: {
-    color: '#111827',
+    color: '#315bd6',
     fontSize: 14,
     fontWeight: '900',
     letterSpacing: 0.5,
@@ -1479,14 +1814,90 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderColor: '#d8dee8',
   },
+  clinicUpdatesPanel: {
+    flex: 0.3,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+    borderLeftWidth: 1,
+    borderColor: '#e1e5ed',
+    backgroundColor: '#ffffff',
+    marginTop: -18,
+    marginRight: -24,
+    marginBottom: -46,
+  },
+  clinicUpdatesHeader: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e8ef',
+  },
+  clinicUpdatesTitle: {
+    color: '#111827',
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  clinicUpdatesBody: {
+    flex: 1,
+  },
+  carouselCard: {
+    width: '100%',
+    aspectRatio: 1.45,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#91bfd6',
+    backgroundColor: '#eaf6ff',
+  },
+  carouselPlaceholderText: {
+    color: '#315bd6',
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  healthTipCard: {
+    borderWidth: 1,
+    borderColor: '#e2e6ee',
+    backgroundColor: '#ffffff',
+    shadowColor: '#111827',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  healthTipTitle: {
+    color: '#111827',
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  healthTipText: {
+    color: '#374151',
+    fontWeight: '500',
+  },
   mediaSlide: {
     flex: 1,
   },
-  mediaContent: {
+  mediaFrame: {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    backgroundColor: '#eaf6ff',
+  },
+  mediaFill: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     width: '100%',
     height: '100%',
   },
   webFrame: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     width: '100%',
     height: '100%',
     borderWidth: 0,
