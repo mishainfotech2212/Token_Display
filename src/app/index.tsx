@@ -28,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Branch,
   CounterTokenDisplayItem,
+  FlatCounterTokenDisplayItem,
   DisplayLabels,
   DisplayMedia,
   HealthTip,
@@ -50,7 +51,11 @@ const TICKER_HEIGHT = 46;
 const STATIC_HEALTH_TIP =
   'Please drink enough water and avoid skipping your prescribed medicines.';
 
-const STATIC_TOKEN_DISPLAY: PublicCounterTokenDisplayResponse = {
+type NormalizedTokenDisplay = Omit<PublicCounterTokenDisplayResponse, 'counters'> & {
+  counters: CounterTokenDisplayItem[];
+};
+
+const STATIC_TOKEN_DISPLAY: NormalizedTokenDisplay = {
   success: true,
   organization: {
     id: 'static-org',
@@ -196,7 +201,7 @@ export default function HomeScreen() {
   const selectedDisplayBranch = selectedBranch;
 
   const activeCounters = useMemo(
-    () => displayData?.counters.filter((item) => item.counter.status === 'active') ?? [],
+    () => displayData?.counters.filter((item) => isDisplayableCounter(item.counter.status)) ?? [],
     [displayData],
   );
   const displayScale = useMemo(() => getDisplayScale(width, height), [height, width]);
@@ -223,7 +228,7 @@ export default function HomeScreen() {
     [counterAreaWidth, displayScale, hasMedia],
   );
   const displayShellWidth = Math.max(0, width - PAGE_HORIZONTAL_PADDING * displayScale * 2);
-  const branchCardWidth = useMemo(() => getBranchCardWidth(width), [width]);
+  const branchCardWidth = useMemo(() => getBranchSelectionCardWidth(width), [width]);
   const advanceMedia = useCallback(() => {
     if (mediaItems.length <= 1) {
       return;
@@ -265,7 +270,8 @@ export default function HomeScreen() {
     (display: PublicCounterTokenDisplayResponse, isInitialLoad: boolean) => {
       const nextServingTokens = new Map<string, string>();
 
-      display.counters.forEach((item) => {
+      display.counters.forEach((rawItem, index) => {
+        const item = normalizeCounterItem(rawItem, index);
         const token = item.currentToken;
 
         if (!token) {
@@ -453,7 +459,7 @@ export default function HomeScreen() {
                       />
                     ))
                   ) : (
-                    <EmptyState message={`No active ${labels.counter.toLowerCase()} found for this branch.`} />
+                    <EmptyState message={`No ${labels.counter.toLowerCase()} found for this branch.`} />
                   )}
                 </ScrollView>
                 {currentMedia && (
@@ -476,29 +482,50 @@ export default function HomeScreen() {
 
   if (organization) {
     return (
-      <SafeAreaView style={styles.page}>
-        <Header
-          scale={1}
-          title={organization.name}
-          subtitle="Select a branch"
-          onBack={resetToBranchCode}
-        />
-        {error && <StatusMessage message={error} type="error" />}
-
-        <ScrollView contentContainerStyle={styles.branchGrid}>
-          {branches.length > 0 ? (
-            branches.map((branch) => (
+      <SafeAreaView style={[styles.page, styles.branchPage]}>
+        <ScrollView
+          contentContainerStyle={styles.branchPageContent}
+          showsVerticalScrollIndicator={false}>
+          <View style={styles.branchSelectionShell}>
+            <View style={styles.branchTopBar}>
               <Pressable
-                key={branch.id}
-                style={[styles.branchCard, { width: branchCardWidth }]}
-                onPress={() => selectBranch(branch)}>
-                <Text style={styles.branchName}>{branch.name}</Text>
-                {branch.address && <Text style={styles.branchAddress}>{branch.address}</Text>}
+                style={({ pressed }) => [styles.branchBackPill, pressed && styles.pressed]}
+                onPress={resetToBranchCode}>
+                <Text style={styles.branchBackArrow}>{'<'}</Text>
+                <Text style={styles.branchBackText}>Back</Text>
               </Pressable>
-            ))
-          ) : (
-            <EmptyState message="No active branches found for this code." />
-          )}
+
+              <View style={styles.branchLivePill}>
+                <View style={styles.branchLiveDot} />
+                <Text style={styles.branchLiveText}>Live • Counter Display</Text>
+              </View>
+            </View>
+
+            <View style={styles.branchHeaderBlock}>
+              <View style={styles.branchWelcomePill}>
+                <Text style={styles.branchWelcomeText}>WELCOME</Text>
+              </View>
+              <Text style={styles.branchOrgTitle}>{organization.name}</Text>
+              <Text style={styles.branchOrgSubtitle}>Select a branch to continue</Text>
+            </View>
+
+            {error && <StatusMessage message={error} type="error" />}
+
+            <View style={styles.branchGrid}>
+              {branches.length > 0 ? (
+                branches.map((branch) => (
+                  <BranchSelectionCard
+                    key={branch.id}
+                    branch={branch}
+                    onPress={() => selectBranch(branch)}
+                    width={branchCardWidth}
+                  />
+                ))
+              ) : (
+                <EmptyState message="No active branches found for this code." />
+              )}
+            </View>
+          </View>
         </ScrollView>
       </SafeAreaView>
     );
@@ -582,6 +609,54 @@ function Header({ scale, title, subtitle, onBack, centerContent, rightContent }:
   );
 }
 
+function getBranchSelectionCardWidth(screenWidth: number) {
+  const gap = 20;
+  const availableWidth = Math.max(0, screenWidth - PAGE_HORIZONTAL_PADDING * 2);
+  const minCardWidth = 300;
+  const maxCardWidth = 360;
+  const columns = Math.max(1, Math.min(2, Math.floor((availableWidth + gap) / (minCardWidth + gap))));
+
+  return Math.min(maxCardWidth, (availableWidth - gap * (columns - 1)) / columns);
+}
+
+function BranchSelectionCard({
+  branch,
+  onPress,
+  width,
+}: {
+  branch: Branch;
+  onPress: () => void;
+  width: number;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.branchCard,
+        { width },
+        pressed && styles.branchCardPressed,
+      ]}>
+      <View style={styles.branchCardBody}>
+        <Text style={styles.branchName}>{branch.name}</Text>
+
+        {branch.address ? (
+          <View style={styles.branchLocationRow}>
+            <Text style={styles.branchLocationIcon}>📍</Text>
+            <Text style={styles.branchAddress}>{branch.address}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.branchCardFooter}>
+        <Text style={styles.branchTapText}>TAP TO ENTER</Text>
+        <View style={styles.branchArrowButton}>
+          <Text style={styles.branchArrowText}>→</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 function getAssignedDoctorDisplayText(item: CounterTokenDisplayItem) {
   const doctorName = item.assignedDoctor?.name?.trim();
 
@@ -611,6 +686,8 @@ function CounterCard({
   const currentToken = item.currentToken;
   const nextTokens = item.waitingTokens.slice(0, 3);
   const counterLabel = getCompactCounterLabel(labels.counter);
+  const counterName = item.counter.name?.trim() ?? '';
+  const showLabelPrefix = shouldPrefixCounterLabel(counterName);
   const staffName = getAssignedDoctorDisplayText(item);
 
   return (
@@ -626,17 +703,21 @@ function CounterCard({
         },
       ]}>
       <View style={styles.cardTopRow}>
-        <View>
+        <View style={styles.cardHeaderTextBlock}>
           <View style={[styles.counterLabelRow, { gap: 8 * scale }]}>
-            <Text style={[styles.soundText, { fontSize: 26 * scale, lineHeight: 32 * scale }]}>
-              {counterLabel}
-            </Text>
+            {showLabelPrefix && (
+              <Text style={[styles.soundText, { fontSize: 26 * scale, lineHeight: 32 * scale }]}>
+                {counterLabel}
+              </Text>
+            )}
             <Text style={[styles.counterName, { fontSize: 25 * scale, lineHeight: 32 * scale }]}>
-              {item.counter.name}
+              {counterName}
             </Text>
           </View>
           {staffName && (
-            <Text style={[styles.staffName, { fontSize: 13 * scale, lineHeight: 18 * scale }]}>
+            <Text
+              numberOfLines={1}
+              style={[styles.staffName, { fontSize: 17 * scale, lineHeight: 24 * scale }]}>
               {staffName}
             </Text>
           )}
@@ -1120,17 +1201,19 @@ function getCompactCounterLabel(label: string) {
   return label.split('/')[0].trim() || label;
 }
 
-function getBranchCardWidth(screenWidth: number) {
-  const gap = 18;
-  const availableWidth = Math.max(0, screenWidth - PAGE_HORIZONTAL_PADDING * 2);
-  const minCardWidth = 300;
-  const columns = Math.max(1, Math.min(3, Math.floor((availableWidth + gap) / (minCardWidth + gap))));
+function shouldPrefixCounterLabel(counterName: string) {
+  const trimmed = counterName.trim();
 
-  return Math.min(380, (availableWidth - gap * (columns - 1)) / columns);
+  if (!trimmed) {
+    return true;
+  }
+
+  // API already sends a full name like "Cabin 001" or "Room No. 1".
+  return !/[a-zA-Z]/.test(trimmed);
 }
 
 function getDisplayLabels(
-  displayResponse: PublicCounterTokenDisplayResponse | null,
+  displayResponse: NormalizedTokenDisplay | PublicCounterTokenDisplayResponse | null,
   branchOrganization: Organization | null,
 ): Required<DisplayLabels> {
   const labels = displayResponse?.labels ?? displayResponse?.organization?.labels ?? branchOrganization?.labels;
@@ -1149,14 +1232,14 @@ function getDisplayLabels(
   };
 }
 
-function getActiveHealthTip(displayResponse: PublicCounterTokenDisplayResponse | null) {
+function getActiveHealthTip(displayResponse: NormalizedTokenDisplay | PublicCounterTokenDisplayResponse | null) {
   const healthTips = displayResponse?.healthTips ?? STATIC_TOKEN_DISPLAY.healthTips ?? [];
   return healthTips.find((tip) => tip.status?.toLowerCase() === 'active') ?? healthTips[0] ?? null;
 }
 
 function mergeTokenDisplayWithFallback(
   response: PublicCounterTokenDisplayResponse,
-): PublicCounterTokenDisplayResponse {
+): NormalizedTokenDisplay {
   const fallbackDisplay = STATIC_TOKEN_DISPLAY.display;
   const fallbackTicker = STATIC_TOKEN_DISPLAY.display?.ticker ?? null;
   const responseTicker = response.display?.ticker;
@@ -1186,7 +1269,7 @@ function mergeTokenDisplayWithFallback(
       ...response.branch,
     },
     counters: hasResponseCounters
-      ? response.counters.map((item, index) => mergeCounterWithFallback(item, index))
+      ? response.counters.map((item, index) => normalizeCounterItem(item, index))
       : STATIC_TOKEN_DISPLAY.counters,
     displayAllowed: response.displayAllowed ?? STATIC_TOKEN_DISPLAY.displayAllowed,
     displayStatus: response.displayStatus ?? STATIC_TOKEN_DISPLAY.displayStatus,
@@ -1233,20 +1316,58 @@ function mergeTokenDisplayWithFallback(
   };
 }
 
+function isFlatCounterItem(item: unknown): item is FlatCounterTokenDisplayItem {
+  if (typeof item !== 'object' || item === null) {
+    return false;
+  }
+
+  const record = item as Record<string, unknown>;
+  return typeof record.id === 'string' && typeof record.name === 'string' && !('counter' in record);
+}
+
+function normalizeCounterItem(
+  item: CounterTokenDisplayItem | FlatCounterTokenDisplayItem,
+  index: number,
+): CounterTokenDisplayItem {
+  if (isFlatCounterItem(item)) {
+    return {
+      counter: {
+        id: item.id,
+        name: item.name,
+        number: item.number,
+        status: item.status,
+      },
+      assignedDoctor: item.assignedDoctor ?? null,
+      assignedServices: item.assignedServices ?? [],
+      currentToken: item.currentToken ?? null,
+      waitingTokens: item.waitingTokens ?? [],
+    };
+  }
+
+  return mergeCounterWithFallback(item, index);
+}
+
+function isDisplayableCounter(status: string | undefined) {
+  const normalized = status?.toLowerCase();
+
+  return normalized !== 'inactive' && normalized !== 'disabled' && normalized !== 'offline';
+}
+
 function mergeCounterWithFallback(item: CounterTokenDisplayItem, index: number): CounterTokenDisplayItem {
   const fallback = STATIC_TOKEN_DISPLAY.counters[index % STATIC_TOKEN_DISPLAY.counters.length];
   const assignedServices = Array.isArray(item.assignedServices) ? item.assignedServices : [];
   const waitingTokens = Array.isArray(item.waitingTokens) ? item.waitingTokens : [];
+  const counter = item.counter ?? fallback.counter;
 
   return {
     ...fallback,
     ...item,
     counter: {
       ...fallback.counter,
-      ...item.counter,
-      id: item.counter.id || fallback.counter.id,
-      name: item.counter.name || fallback.counter.name,
-      status: item.counter.status || fallback.counter.status,
+      ...counter,
+      id: counter.id || fallback.counter.id,
+      name: counter.name || fallback.counter.name,
+      status: counter.status || fallback.counter.status,
     },
     assignedDoctor: item.assignedDoctor ?? null,
     assignedServices: assignedServices.length > 0 ? assignedServices : fallback.assignedServices,
@@ -1394,7 +1515,7 @@ function getYouTubeVideoId(url: string) {
   return null;
 }
 
-function getDisplayIssue(displayResponse: PublicCounterTokenDisplayResponse): DisplayIssue | null {
+function getDisplayIssue(displayResponse: NormalizedTokenDisplay | PublicCounterTokenDisplayResponse): DisplayIssue | null {
   if (!displayResponse.display) {
     return 'missing';
   }
@@ -1608,39 +1729,192 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
+  branchPage: {
+    backgroundColor: '#eef5ff',
+  },
+  branchPageContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+  },
+  branchSelectionShell: {
+    width: '100%',
+    maxWidth: 920,
+    alignItems: 'stretch',
+  },
+  branchTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 28,
+    gap: 16,
+  },
+  branchBackPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#dbe4f2',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    shadowColor: '#162033',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  branchBackArrow: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  branchBackText: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  branchLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#dbe4f2',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  branchLiveDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#22c55e',
+  },
+  branchLiveText: {
+    color: '#475467',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  branchHeaderBlock: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 34,
+  },
+  branchWelcomePill: {
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#dbe4f2',
+    paddingHorizontal: 22,
+    paddingVertical: 11,
+    marginBottom: 18,
+  },
+  branchWelcomeText: {
+    color: '#667085',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 1.6,
+  },
+  branchOrgTitle: {
+    color: '#0f172a',
+    fontSize: 42,
+    lineHeight: 50,
+    fontWeight: '900',
+    textAlign: 'center',
+    maxWidth: 760,
+  },
+  branchOrgSubtitle: {
+    color: '#667085',
+    fontSize: 18,
+    lineHeight: 26,
+    marginTop: 10,
+    textAlign: 'center',
+  },
   branchGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 18,
-    alignItems: 'flex-start',
-    paddingBottom: 24,
+    gap: 20,
+    justifyContent: 'center',
+    alignItems: 'stretch',
+    width: '100%',
   },
   branchCard: {
-    flexGrow: 0,
-    flexShrink: 0,
-    minHeight: 132,
-    borderRadius: 14,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#dce1ea',
+    borderColor: '#e4ebf5',
     backgroundColor: '#ffffff',
     paddingHorizontal: 24,
     paddingVertical: 24,
-    justifyContent: 'center',
     shadowColor: '#162033',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 4,
+  },
+  branchCardPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.985 }],
+  },
+  branchCardBody: {
+    alignItems: 'center',
+    marginBottom: 24,
   },
   branchName: {
-    color: '#111827',
-    fontSize: 20,
-    fontWeight: '800',
+    color: '#0f172a',
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '900',
     marginBottom: 10,
+    textAlign: 'center',
+  },
+  branchLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  branchLocationIcon: {
+    fontSize: 16,
+    lineHeight: 20,
   },
   branchAddress: {
     color: '#667085',
     fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  branchCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#edf1f7',
+    paddingTop: 18,
+  },
+  branchTapText: {
+    color: '#98a2b3',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  branchArrowButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#0f172a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  branchArrowText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 22,
   },
   displayContent: {
     flex: 1,
@@ -1682,10 +1956,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  cardHeaderTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
   counterLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    minWidth: 0,
   },
   soundText: {
     color: '#315bd6',
@@ -1707,6 +1986,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 15,
     paddingVertical: 7,
+    flexShrink: 0,
   },
   servingBadgeText: {
     color: '#ffffff',

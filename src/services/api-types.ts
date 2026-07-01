@@ -38,7 +38,14 @@ export type Counter = {
   id: string;
   name: string;
   number: number;
-  status: 'active' | 'inactive' | string;
+  status: 'active' | 'idle' | 'inactive' | string;
+};
+
+export type FlatCounterTokenDisplayItem = Counter & {
+  assignedDoctor?: AssignedDoctor | null;
+  assignedServices?: ServiceMapping[];
+  currentToken?: CurrentToken | null;
+  waitingTokens?: WaitingToken[];
 };
 
 export type ServiceMapping = {
@@ -125,7 +132,7 @@ export type PublicCounterTokenDisplayResponse = {
   organization?: Organization;
   labels?: DisplayLabels;
   branch: Branch;
-  counters: CounterTokenDisplayItem[];
+  counters: (CounterTokenDisplayItem | FlatCounterTokenDisplayItem)[];
   last_updated: string;
   displayAllowed?: boolean;
   displayStatus?: 'ONLINE' | 'OFFLINE' | string;
