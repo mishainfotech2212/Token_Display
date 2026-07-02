@@ -1,3 +1,6 @@
+import { useEventListener } from 'expo';
+import { Image } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   createElement,
   useCallback,
@@ -7,9 +10,6 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useEventListener } from 'expo';
-import { Image } from 'expo-image';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   ActivityIndicator,
   Animated,
@@ -22,15 +22,15 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 
 import {
   Branch,
   CounterTokenDisplayItem,
-  FlatCounterTokenDisplayItem,
   DisplayLabels,
   DisplayMedia,
+  FlatCounterTokenDisplayItem,
   HealthTip,
   Organization,
   PublicCounterTokenDisplayResponse,
@@ -1576,14 +1576,15 @@ const styles = StyleSheet.create({
   },
   loginCard: {
     width: '100%',
-    maxWidth: 840,
-    minHeight: 560,
-    borderRadius: 22,
+    maxWidth: 560,
+    minHeight: 400,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#dce1ea',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 60,
-    paddingVertical: 60,
+    paddingHorizontal: 36,
+    paddingTop: 44,
+    paddingBottom: 44,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#162033',
@@ -1593,63 +1594,64 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   displayIconBox: {
-    width: 104,
-    height: 104,
-    borderRadius: 22,
+    width: 72,
+    height: 72,
+    borderRadius: 16,
     backgroundColor: '#dfe6f8',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 22,
   },
   displayIconScreen: {
-    width: 48,
-    height: 34,
-    borderWidth: 4,
+    width: 34,
+    height: 24,
+    borderWidth: 3,
     borderColor: '#2453ca',
-    borderRadius: 5,
+    borderRadius: 4,
   },
   displayIconStand: {
-    width: 28,
-    height: 10,
-    borderBottomWidth: 4,
+    width: 20,
+    height: 8,
+    borderBottomWidth: 3,
     borderBottomColor: '#2453ca',
-    borderLeftWidth: 4,
-    borderRightWidth: 4,
+    borderLeftWidth: 3,
+    borderRightWidth: 3,
     borderColor: '#2453ca',
-    marginTop: 4,
+    marginTop: 3,
   },
   loginTitle: {
-    fontSize: 36,
-    lineHeight: 44,
+    fontSize: 28,
+    lineHeight: 34,
     fontWeight: '800',
     color: '#101522',
-    marginBottom: 22,
+    marginBottom: 10,
     textAlign: 'center',
   },
   loginSubtitle: {
-    fontSize: 24,
+    fontSize: 16,
+    lineHeight: 22,
     color: '#6d7583',
-    marginBottom: 48,
+    marginBottom: 34,
     textAlign: 'center',
   },
   input: {
     width: '100%',
-    minHeight: 76,
+    minHeight: 54,
     borderRadius: 8,
     borderWidth: 2,
     borderColor: '#dde1e8',
     backgroundColor: '#f9fafc',
     color: '#111827',
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '600',
-    letterSpacing: 5,
-    paddingHorizontal: 24,
+    letterSpacing: 4,
+    paddingHorizontal: 20,
     textAlign: 'center',
-    marginBottom: 22,
+    marginBottom: 16,
   },
   primaryButton: {
     width: '100%',
-    minHeight: 76,
+    minHeight: 54,
     borderRadius: 9,
     backgroundColor: '#315bd6',
     alignItems: 'center',
@@ -1660,7 +1662,7 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: '#ffffff',
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '800',
   },
   pressed: {
