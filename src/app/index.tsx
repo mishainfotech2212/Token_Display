@@ -667,6 +667,7 @@ function getAssignedDoctorDisplayText(item: CounterTokenDisplayItem) {
   const serviceNames = item.assignedServices
     .map((service) => service.name.trim())
     .filter(Boolean)
+    .filter((serviceName) => serviceName.toLowerCase() !== doctorName.toLowerCase())
     .join(', ');
 
   return serviceNames ? `${doctorName} - ${serviceNames}` : doctorName;
@@ -1270,7 +1271,7 @@ function mergeTokenDisplayWithFallback(
     },
     counters: hasResponseCounters
       ? response.counters.map((item, index) => normalizeCounterItem(item, index))
-      : STATIC_TOKEN_DISPLAY.counters,
+      : [],
     displayAllowed: response.displayAllowed ?? STATIC_TOKEN_DISPLAY.displayAllowed,
     displayStatus: response.displayStatus ?? STATIC_TOKEN_DISPLAY.displayStatus,
     display:
@@ -1327,7 +1328,7 @@ function isFlatCounterItem(item: unknown): item is FlatCounterTokenDisplayItem {
 
 function normalizeCounterItem(
   item: CounterTokenDisplayItem | FlatCounterTokenDisplayItem,
-  index: number,
+  _index: number,
 ): CounterTokenDisplayItem {
   if (isFlatCounterItem(item)) {
     return {
@@ -1344,45 +1345,19 @@ function normalizeCounterItem(
     };
   }
 
-  return mergeCounterWithFallback(item, index);
+  return {
+    counter: item.counter,
+    assignedDoctor: item.assignedDoctor ?? null,
+    assignedServices: Array.isArray(item.assignedServices) ? item.assignedServices : [],
+    currentToken: item.currentToken ?? null,
+    waitingTokens: Array.isArray(item.waitingTokens) ? item.waitingTokens : [],
+  };
 }
 
 function isDisplayableCounter(status: string | undefined) {
   const normalized = status?.toLowerCase();
 
   return normalized !== 'inactive' && normalized !== 'disabled' && normalized !== 'offline';
-}
-
-function mergeCounterWithFallback(item: CounterTokenDisplayItem, index: number): CounterTokenDisplayItem {
-  const fallback = STATIC_TOKEN_DISPLAY.counters[index % STATIC_TOKEN_DISPLAY.counters.length];
-  const assignedServices = Array.isArray(item.assignedServices) ? item.assignedServices : [];
-  const waitingTokens = Array.isArray(item.waitingTokens) ? item.waitingTokens : [];
-  const counter = item.counter ?? fallback.counter;
-
-  return {
-    ...fallback,
-    ...item,
-    counter: {
-      ...fallback.counter,
-      ...counter,
-      id: counter.id || fallback.counter.id,
-      name: counter.name || fallback.counter.name,
-      status: counter.status || fallback.counter.status,
-    },
-    assignedDoctor: item.assignedDoctor ?? null,
-    assignedServices: assignedServices.length > 0 ? assignedServices : fallback.assignedServices,
-    currentToken: item.currentToken
-      ? {
-          ...fallback.currentToken,
-          ...item.currentToken,
-          ticket_number: item.currentToken.ticket_number || fallback.currentToken?.ticket_number || '--',
-          service_name: item.currentToken.service_name || fallback.currentToken?.service_name || '',
-          service_color: item.currentToken.service_color || fallback.currentToken?.service_color || '#315bd6',
-          called_at: item.currentToken.called_at || fallback.currentToken?.called_at || new Date().toISOString(),
-        }
-      : item.currentToken,
-    waitingTokens,
-  };
 }
 
 function getMediaKind(media: DisplayMedia): 'image' | 'video' | 'web' | 'text' {
